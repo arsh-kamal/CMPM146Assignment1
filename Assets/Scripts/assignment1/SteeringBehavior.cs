@@ -74,22 +74,29 @@ public class SteeringBehavior : MonoBehaviour
         float newAngle = Vector3.Angle(transform.forward, direction);
 
         // Only move if facing close enough
-        if (newAngle < 10f)
-        {
-            float speed = shouldReverse ? -maxSpeed * 0.4f : maxSpeed;
-            // Slow down near destination
-            if (distance < arrivalRadius * 2)
-            {
-                float t = distance / (arrivalRadius * 2);
-                speed *= t;
-            }
+float speed;
 
-            kinematic.SetDesiredSpeed(speed);
-        }
-        else
-        {
-            kinematic.SetDesiredSpeed(0f);
-        }
+if (newAngle < 10f)
+{
+    speed = maxSpeed;
+}
+else if (shouldReverse && newAngle > 170f)
+{
+    speed = -maxSpeed * 0.4f;
+}
+else
+{
+    speed = 0f;
+}
+
+if (distance < arrivalRadius * 2)
+{
+    float t = distance / (arrivalRadius * 2);
+    speed *= t;
+}
+
+kinematic.SetDesiredSpeed(speed);
+
 
         // Stop at waypoint
         if (distance < waypointThreshold)
