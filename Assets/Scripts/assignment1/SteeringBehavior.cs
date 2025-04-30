@@ -13,8 +13,8 @@ public class SteeringBehavior : MonoBehaviour
     private Vector3 currentTarget;
 
     private float maxSpeed = 10f;
-    private float arrivalRadius = 0.2f;
-    private float rotationSpeed = 180f; // degrees/second
+    private float arrivalRadius = 1f;
+    private float rotationSpeed = 180f;
     private float waypointThreshold = 0.2f;
 
     private bool reachedFinalTarget = false;
@@ -25,6 +25,8 @@ public class SteeringBehavior : MonoBehaviour
         path = null;
         currentTarget = transform.position;
         EventBus.OnSetMap += SetMap;
+        EventBus.OnPath += SetPath;
+        EventBus.OnTarget += SetTarget;
     }
 
     void Update()
@@ -47,61 +49,105 @@ public class SteeringBehavior : MonoBehaviour
     {
         if (currentWaypointIndex >= path.Count)
         {
-            reachedFinalTarget = true;
-            kinematic.SetDesiredSpeed(0f);
-            kinematic.SetDesiredRotationalVelocity(0f);
+            Vector3 toFinalTarget = path[path.Count - 1] - transform.position;
+            toFinalTarget.y = 0;
+            float distanceToFinal = toFinalTarget.magnitude;
+            Debug.Log($"Reached final waypoint, distance to final target: {distanceToFinal}, position: {transform.position}, target: {path[path.Count - 1]}");
+
+            if (distanceToFinal < waypointThreshold)
+            {
+                reachedFinalTarget = true;
+                kinematic.SetDesiredSpeed(0f);
+                kinematic.SetDesiredRotationalVelocity(0f);
+                Vector3 finalPos = path[path.Count - 1];
+                transform.position = new Vector3(finalPos.x, transform.position.y, finalPos.z);
+                Debug.Log($"Car snapped to final target at {transform.position}");
+            }
+            else
+            {
+                currentTarget = path[path.Count - 1];
+                MoveToTarget();
+            }
             return;
         }
 
         currentTarget = path[currentWaypointIndex];
+        MoveToTarget();
+    }
+
+    private void MoveToTarget()
+    {
         Vector3 toTarget = currentTarget - transform.position;
         toTarget.y = 0;
         float distance = toTarget.magnitude;
+        Debug.Log($"Moving to target at {currentTarget}, distance: {distance}, position: {transform.position}");
 
-        // Direction to face
+        if (distance < waypointThreshold)
+        {
+            transform.position = new Vector3(currentTarget.x, transform.position.y, currentTarget.z);
+            kinematic.SetDesiredSpeed(0f);
+            kinematic.SetDesiredRotationalVelocity(0f);
+            Debug.Log($"Snapped to target at {transform.position}");
+
+            if (currentWaypointIndex < path.Count)
+            {
+                currentWaypointIndex++;
+                Debug.Log($"Reached waypoint {currentWaypointIndex - 1}, moving to next");
+            }
+            return;
+        }
+
         Vector3 direction = toTarget.normalized;
         float angle = Vector3.SignedAngle(transform.forward, direction, Vector3.up);
 
-        // Reverse if angle is behind
         bool shouldReverse = Mathf.Abs(angle) > 135f;
         Vector3 desiredDirection = shouldReverse ? -direction : direction;
 
-        // Rotate car smoothly toward target direction
         Quaternion targetRotation = Quaternion.LookRotation(desiredDirection, Vector3.up);
         transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
 
-        // Recalculate angle after rotating
         float newAngle = Vector3.Angle(transform.forward, direction);
+        Debug.Log($"Angle to target: {newAngle}, shouldReverse: {shouldReverse}");
 
-        // Only move if facing close enough
-float speed;
+        float speed;
+        if (newAngle < 10f)
+        {
+            speed = maxSpeed;
+        }
+        else if (shouldReverse && newAngle > 170f)
+        {
+            speed = -maxSpeed * 0.2f;
+        }
+        else
+        {
+            speed = 0f;
+        }
 
-if (newAngle < 10f)
-{
-    speed = maxSpeed;
-}
-else if (shouldReverse && newAngle > 170f)
-{
-    speed = -maxSpeed * 0.4f;
-}
-else
-{
-    speed = 0f;
-}
+        if (distance < arrivalRadius * 2)
+        {
+            float t = distance / (arrivalRadius * 2);
+            if (shouldReverse)
+            {
+                speed = -maxSpeed * 0.2f * t;
+            }
+            else
+            {
+                speed = maxSpeed * t;
+            }
+            Debug.Log($"Slowing down, t: {t}, adjusted speed: {speed}");
+        }
 
-if (distance < arrivalRadius * 2)
-{
-    float t = distance / (arrivalRadius * 2);
-    speed *= t;
-}
+        kinematic.SetDesiredSpeed(speed);
 
-kinematic.SetDesiredSpeed(speed);
-
-
-        // Stop at waypoint
+        toTarget = currentTarget - transform.position;
+        toTarget.y = 0;
+        distance = toTarget.magnitude;
         if (distance < waypointThreshold)
         {
-            currentWaypointIndex++;
+            transform.position = new Vector3(currentTarget.x, transform.position.y, currentTarget.z);
+            kinematic.SetDesiredSpeed(0f);
+            kinematic.SetDesiredRotationalVelocity(0f);
+            Debug.Log($"Corrected overshoot, snapped to target at {transform.position}");
         }
     }
 
@@ -114,7 +160,11 @@ kinematic.SetDesiredSpeed(speed);
         if (path != null && path.Count > 0)
         {
             this.currentTarget = path[0];
-            Debug.Log("✅ Strict path set with " + path.Count + " points.");
+            Debug.Log("✅ Strict path set with " + path.Count + " points: " + string.Join(", ", path));
+        }
+        else
+        {
+            Debug.Log("❌ Path is empty or null");
         }
     }
 
@@ -127,6 +177,7 @@ kinematic.SetDesiredSpeed(speed);
         this.currentTarget = correctedTarget;
         this.reachedFinalTarget = false;
 
+        Debug.Log($"SteeringBehavior received target at {correctedTarget}");
         EventBus.ShowTarget(correctedTarget);
     }
 
@@ -137,6 +188,6 @@ kinematic.SetDesiredSpeed(speed);
         target = transform.position;
         currentTarget = target;
         reachedFinalTarget = false;
+        Debug.Log("SteeringBehavior reset for new map");
     }
 }
-
